@@ -39,8 +39,8 @@ class Repo:
         while page <= last:
             async with client.get(self.url, params={'page': page}) as resp:
                 if resp.status != 200:
-                    # rate limited
-                    continue
+                    # rate limited -- wait 5 minutes
+                    await asyncio.sleep(60 * 5)
 
                 # paging
                 if 'link' in resp.headers:
