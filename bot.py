@@ -53,7 +53,7 @@ class Repo:
 
                 jso = await resp.json()
                 for commit in jso:
-                    author = commit['commit']['author']['email']
+                    author = commit['commit']['author']['name']
                     if author != self.target:
                         continue
 
@@ -83,7 +83,7 @@ async def on_ready():
     tasks = []
     for repo in os.environ['DISCORD_BOT_REPOS'].split(':'):
         user, repo = repo.split('/')
-        puller = Repo(user, repo, 'mihasmaka1@gmail.com', commits)
+        puller = Repo(user, repo, 'Smakson', commits)
         loop.call_soon_threadsafe(asyncio.create_task, puller.pull())
 
     print('logged in')
