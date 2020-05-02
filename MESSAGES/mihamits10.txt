@@ -1,0 +1,3 @@
+Merge pull request #55 from ltricot/Smakson-patch-12
+
+turns out we don't need decoding :weary:

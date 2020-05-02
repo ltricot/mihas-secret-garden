@@ -1,0 +1,3 @@
+Merge pull request #18 from ltricot/Smakson-patch-1
+
+Added the header part of the Bloom filter
