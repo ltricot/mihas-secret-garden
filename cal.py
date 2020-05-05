@@ -13,18 +13,19 @@ class Reminder:
         self.cal = cal
 
         if reminds is None:
-            self.reminds = []
+            self.reminds = {}
 
     def reinit_reminds(self, user):
         # must be called while loop active
-        for event in self.reminds:
-            asyncio.create_task(self._remind(event, user))
+        for ccode, event in self.reminds.items():
+            asyncio.create_task(self._remind(ccode, event, user))
 
-    async def _remind(self, event, user):
+    async def _remind(self, ccode, event, user):
         '''long running remind coroutine'''
         # sleep 1 day at a time, maximum
-        while (d := event.begin - dt.now(tz=event.begin.tzinfo)) > 0:
-            await asyncio.sleep(min(d - 5 * 60, 86400))
+        remaining = lambda: event.begin - dt.now(tz=event.begin.tzinfo)
+        while remaining() > 0:
+            await asyncio.sleep(min(remaining() - 5 * 60, 86400))
 
         if user.dm_channel is None:
             await user.create_dm()
@@ -36,7 +37,9 @@ class Reminder:
         ])
 
         await user.dm_channel.send(
-            msg.format(n=event.name, t=event.humanize()))
+            msg.format(n=event.name, t=event.begin.humanize()))
+
+        del self.reminds[ccode]
 
     @classmethod
     async def from_link(cls, link):
@@ -61,14 +64,20 @@ class Reminder:
 
             yield event
 
-    def listme(self):
+    def listme(self, date=None):
         '''list events as messages'''
         for event in self.futures():
-            yield f'{event.name}, {event.begin.humanize()}'
+            if date is None or event.begin.date() == date:
+                yield f'{event.name}, {event.begin.humanize()}'
 
     def remindme(self, ccode, user):
         '''finds event according to course code'''
+        if ccode in self.reminds:
+            return False
+
         for event in self.futures():
             if event.name.lower().startswith(ccode):
-                self.reminds.append(event)
-                asyncio.create_task(self._remind(event, user))
+                self.reminds[ccode] = event
+                asyncio.create_task(self._remind(ccode, event, user))
+
+        return True

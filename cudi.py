@@ -1,5 +1,6 @@
 import discord
 
+from datetime import datetime as dt, timedelta as td
 from functools import wraps
 import pickle
 import random
@@ -190,14 +191,40 @@ class Cudi(discord.Client):
                 await message.channel.send(
                     'your calendar is in my mind ;)')
 
+            # boast possibilities
+            await message.channel.send((
+                'you can now ask:\n'
+                ' - "next class",\n'
+                ' - "classes today",\n'
+                ' - "classes tomorrow",\n'
+                ' - "remind me next MAA306",'
+            ))
+
         if 'next class' in message.content:
             if message.author.id not in self._calendars:
-                await _no(message)
+                await self._no(message)
                 return
 
             reminder = self._calendars[message.author.id]
             msg = next(iter(reminder.listme()))
             await message.channel.send(msg)
+
+        if 'classes' in message.content:
+            if message.author.id not in self._calendars:
+                await self._no(message)
+                return
+
+            if 'today' in message.content:
+                date = dt.today().date()
+            elif 'tomorrow' in message.content:
+                date = (dt.today() + td(days=1)).date()
+            else:
+                await self._no(message)
+                return
+
+            reminder = self._calendars[message.author.id]
+            for msg in reminder.listme(date=date):
+                await message.channel.send(msg)
 
     async def on_message(self, message):
         if message.author == self.user:
