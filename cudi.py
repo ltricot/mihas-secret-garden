@@ -1,6 +1,7 @@
 import discord
 
 from functools import wraps
+import pickle
 import random
 import os, re
 
@@ -10,20 +11,54 @@ from cal import Reminder
 class Cudi(discord.Client):
 
     # 227044840309784576
-    def __init__(self, owner_id, message_folder, *args, **kws):
+    def __init__(self, owner_id, messages, *args, **kws):
         super().__init__(*args, **kws)
 
         self._owner_id = owner_id
         self._allowed_channels = {}
-        self._messages = []
-
-        for mfile in os.listdir(message_folder):
-            fname = os.path.join(message_folder, mfile)
-            self._messages.append(open(fname).read())
+        self._messages = messages
 
         self._calendars = {}
 
+    @classmethod
+    def from_config(cls, owner, messages, config=None, *args, **kws):
+        if config is not None and os.path.exists(config):
+            with open(config, 'rb') as f:
+                cudi = pickle.load(f)
+            assert isinstance(cudi, cls)
+
+            cudi._owner_id = owner
+            cudi._messages = messages
+            cudi._config = config
+
+            return cudi
+
+        return cls(owner, messages, *args, **kws)
+
+    # the following two methods are necessary because
+    # I used inheritance like an IDIOT
+
+    def __getstate__(self):
+        return {
+            'o': self._owner_id,
+            'm': self._messages,
+            'c': self._calendars,
+        }
+
+    def __setstate__(self, state):
+        self._owner_id = state['o']
+        self._messages = state['m']
+        self._calendars = state['c']
+
+        super().__init__()
+
+        # reinitialize calendars
+        for userid, cal in self._calendars.items():
+            user = self.get_user(userid)
+            cal.reinit_reminds(user)
+
     async def on_ready(self):
+        return
 
         # inelegant way of finding channels on which we can send
         # messages. attempted to use `permissions_for` methods with no
@@ -110,6 +145,60 @@ class Cudi(discord.Client):
     async def _no(self, message):
         await message.channel.send('fuck u say ?')
 
+    async def _do_private(self, message):
+        # remind me of class
+        if 'remind' in message.content:
+            match = re.search(
+                r'((MAA|CSE|MIE|ECO|PHY)[0-9]{3})',
+                message.content,
+            )
+
+            if not match:
+                await self._no(message)
+                return
+
+            ccode = match.group(0)
+
+            # create user's calendar
+            if message.author.id not in self._calendars:
+                await message.channel.send(
+                    'I need your synapses ical link !')
+                return
+
+            # create remind task
+            cal = self._calendars[message.author.id]
+            cal.remindme(ccode, message.author)
+
+            await message.channel.send(
+                f'will remind you of {ccode} 5 minutes before')
+
+        if 'calendar/ical' in message.content:
+            async with message.channel.typing():
+                match = re.search(
+                    r'https://[^\s]+',
+                    message.content,
+                )
+
+                if not match:
+                    await self._no(message)
+                    return
+
+                url = match.group(0)
+                reminder = await Reminder.from_link(url)
+                self._calendars[message.author.id] = reminder
+
+                await message.channel.send(
+                    'your calendar is in my mind ;)')
+
+        if 'next class' in message.content:
+            if message.author.id not in self._calendars:
+                await _no(message)
+                return
+
+            reminder = self._calendars[message.author.id]
+            msg = next(iter(reminder.listme()))
+            await message.channel.send(msg)
+
     async def on_message(self, message):
         if message.author == self.user:
             return
@@ -124,61 +213,7 @@ class Cudi(discord.Client):
 
         # case 2: consulting privately
         if isinstance(message.channel, discord.DMChannel):
-            
-            # remind me of class
-            if 'remind' in message.content:
-                match = re.search(
-                    r'((MAA|CSE|MIE|ECO|PHY)[0-9]{3})',
-                    message.content,
-                )
-
-                if not match:
-                    await self._no(message)
-                    return
-
-                ccode = match.group(0)
-
-                # create user's calendar
-                if message.author.id not in self._calendars:
-                    await message.channel.send(
-                        'I need your synapses ical link !')
-                    return
-
-                # create remind task
-                cal = self._calendars[message.author.id]
-                cal.remindme(ccode)
-
-                await message.channel.send(
-                    f'will remind you of {ccode}')
-
-            if 'calendar/ical' in message.content:
-                async with message.channel.typing():
-                    match = re.search(
-                        r'https://[^\s]+',
-                        message.content,
-                    )
-
-                    if not match:
-                        await self._no(message)
-                        return
-
-                    url = match.group(0)
-                    reminder = await Reminder.from_link(
-                        message.author, url)
-                    self._calendars[message.author.id] = reminder
-
-                    await message.channel.send(
-                        'your calendar is in my mind ;)')
-
-            if 'next class' in message.content:
-                if message.author.id not in self._calendars:
-                    await _no(message)
-                    return
-
-                reminder = self._calendars[message.author.id]
-                msg = next(iter(reminder.listme()))
-                await message.channel.send(msg)
-
+            await self._do_private(message)
             return
 
         # case 3: public show
@@ -191,7 +226,22 @@ if __name__ == '__main__':
     import sys
 
 
-    token, folder = sys.argv[1:]
+    # config argument optional
+    token, folder, *config = sys.argv[1:]
 
-    cudi = Cudi(227044840309784576, folder)
-    cudi.run(token)
+    # read all messages from files
+    messages = []
+    for mfile in os.listdir(folder):
+        fname = os.path.join(folder, mfile)
+        messages.append(open(fname).read())
+
+    cudi = Cudi.from_config(227044840309784576, messages, *config)
+
+    try:
+        cudi.run(token)
+    except KeyboardInterrupt:
+        ...
+    finally:
+        if config:
+            with open(*config, 'wb') as f:
+                pickle.dump(cudi, f)
